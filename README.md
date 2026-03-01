@@ -1,6 +1,9 @@
 #RPA_TOOL
+
 Herramienta para extraer y manejar archivos .rpa del motor ren'py.  
+
 #Características de RPA_TOOL
+
 1️⃣ Funcionalidad principal
 
 Extrae contenido de archivos .rpa de proyectos Ren’Py.
