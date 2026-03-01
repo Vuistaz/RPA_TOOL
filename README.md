@@ -25,7 +25,9 @@ No soporta archivos .rpa corruptos o personalizados con cifrado adicional.
 Ejecutable escaneado con VirusTotal
 Escaneado en [VirusTotal](https://www.virustotal.com/gui/file/58a6e697e22e013a88c346162d3428aaf4ec20b9fd8ebc6287e0c5b05857236a?nocache=1)
 ⚠️ Nota: algunos antivirus pueden marcar esta herramienta como sospechosa. Esto es un **falso positivo común** en ejecutables de Python/compilados con PyInstaller.
+
 SHA256 del archivo para verificación de integridad
+
 58a6e697e22e013a88c346162d3428aaf4ec20b9fd8ebc6287e0c5b05857236a
 
 4️⃣ Uso y rendimiento
