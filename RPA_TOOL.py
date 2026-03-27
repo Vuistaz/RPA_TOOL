@@ -1,3 +1,40 @@
+# ===================
+# CHANGELOG
+# ===================
+# 1.0 primera version / bugs encontrados: problemas con algunas funciones y ui pero programa funcional
+# 1.1:
+## v1.1 - Mejoras de estabilidad y UI
+
+### 🔧 Fixes
+#- Corregido freeze de la interfaz (uso de callbacks thread-safe con `app.after`)
+#- Corregido error de cierre de archivos RPA (uso de `try/finally`)
+#- Corregido posible crash silencioso en el proceso principal
+#- Corregido comportamiento de la barra de progreso
+
+### ⚡ Mejoras
+#- Implementación de sistema de progreso funcional
+#- Mejora en mensajes de estado (más claros y descriptivos)
+#- Indicador de progreso por archivo `(actual/total)`
+#- Detección automática de archivos `.rpa`
+#- Verificación previa de existencia de archivos `.rpyc`
+#- Creación automática de carpeta `extracted`
+#- Advertencia si la carpeta `extracted` ya existe
+
+### 🧠 UI / UX
+#- Interfaz ahora completamente responsive (sin bloqueos)
+#- Botón deshabilitado durante la extracción para evitar múltiples ejecuciones
+#- Actualización en tiempo real de estado y progreso
+#- Mejor feedback visual al usuario
+
+### 🧹 Limpieza
+#- Eliminado soporte para archivos `.td` (inestable y costoso en recursos)
+#- Código simplificado y más mantenible
+#- Manejo de errores más robusto
+
+### 🔒 Estabilidad
+#- Mejor manejo de excepciones globales
+#- Prevención de conflictos entre threads y Tkinter
+#- Mayor compatibilidad al compilar con PyInstaller
 # especial agradecimiento a Shizmob por su codigo fuente de rpa tool con el cual cree esta herramienta si quieren pasarse por su github: https://github.com/shizmob/rpatool
 from __future__ import print_function
 
@@ -119,22 +156,26 @@ def find_rpa_files(root_folder):
                 rpas.append(os.path.join(root, f))
     return rpas
 
-
 def extract_rpa_file(rpa_path, output_dir):
     archive = RenPyArchive(rpa_path)
 
-    for filename in archive.list():
-        try:
-            data = archive.read(filename)
-            out_path = os.path.join(output_dir, filename)
+    try:
+        for filename in archive.list():
+            try:
+                data = archive.read(filename)
+                out_path = os.path.join(output_dir, filename)
 
-            os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
-            with open(out_path, "wb") as f:
-                f.write(data)
+                with open(out_path, "wb") as f:
+                    f.write(data)
 
-        except Exception as e:
-            print("[RPA ERROR]", filename, e)
+            except Exception as e:
+                print("[RPA ERROR]", filename, e)
+
+    finally:
+        if archive.handle:
+            archive.handle.close()
 
 
 # =============================
@@ -183,33 +224,56 @@ def decompile_rpyc(root_folder, status_callback=None):
 # PROCESO PRINCIPAL
 # =============================
 def process_game(root_folder, status_callback=None, progress_callback=None):
-    if status_callback:
-        status_callback("Buscando archivos RPA...")
 
-    rpa_files = find_rpa_files(root_folder)
-
-    if not rpa_files:
+    # 🔹 Wrappers para asegurar update de UI
+    def update_status(msg):
         if status_callback:
-            status_callback("No se encontraron RPA")
-        return
+            status_callback(msg)
 
-    output_dir = os.path.join(root_folder, "extracted")
-    total = len(rpa_files)
-
-    for i, rpa in enumerate(rpa_files, start=1):
-        if status_callback:
-            status_callback(f"Extrayendo {os.path.basename(rpa)}")
-
-        extract_rpa_file(rpa, output_dir)
-
+    def update_progress(i, total):
         if progress_callback:
             progress_callback(i, total)
 
-    decompile_rpyc(root_folder, status_callback)
+    # 🔍 Buscar archivos
+    update_status("🔎 Buscando archivos RPA...")
 
-    if status_callback:
-        status_callback("✅ Todo completado")
+    rpa_files = find_rpa_files(root_folder)
 
+    print("RPA encontrados:", rpa_files)
+
+    if not rpa_files:
+        update_status("❌ No se encontraron archivos RPA")
+        return
+
+    output_dir = os.path.join(root_folder, "extracted")
+    if os.path.exists(output_dir):
+        update_status("⚠️ Carpeta 'extracted' ya existe (se sobrescribirá)")
+    os.makedirs(output_dir, exist_ok=True)
+
+    total = len(rpa_files)
+    current = 0
+
+    # =============================
+    # 🔹 PROCESAR RPA
+    # =============================
+    for rpa in rpa_files:
+        current += 1
+
+        update_status(f"Extrayendo ({current}/{total}): {os.path.basename(rpa)}")
+
+        try:
+            extract_rpa_file(rpa, output_dir)
+        except Exception as e:
+            print("[RPA ERROR]", e)
+
+        update_progress(current, total)
+    # =============================
+    # 🔹 DECOMPILAR SCRIPTS
+    # =============================
+    update_status("Decompilando scripts...")
+    decompile_rpyc(root_folder, update_status)
+
+    update_status("✅ Extracción y decompilación completadas")
 
 # =============================
 # GUI
@@ -228,11 +292,17 @@ def select_root():
 
 
 def run_extraction():
-    process_game(
-        ROOT_DIR,
-        status_callback=lambda t: status.config(text=t),
-        progress_callback=lambda i, t: progress.config(maximum=t, value=i),
-    )
+    try:
+        process_game(
+            ROOT_DIR,
+            status_callback=lambda t: safe_ui_update(lambda: status.config(text=t)),
+            progress_callback=lambda i, t: safe_ui_update(
+                lambda: (progress.config(maximum=t, value=i))
+            ),
+        )
+    except Exception as e:
+        print("[FATAL ERROR]", e)
+        safe_ui_update(lambda: status.config(text="❌ Error inesperado"))
 
 
 def start_extraction():
@@ -240,15 +310,27 @@ def start_extraction():
         messagebox.showwarning("Aviso", "Selecciona una carpeta primero")
         return
 
-    thread = threading.Thread(target=run_extraction)
+    progress["value"] = 0
+    progress["maximum"] = 1
+
+    start_btn.config(state="disabled")
+
+    def task():
+        run_extraction()
+        safe_ui_update(lambda: start_btn.config(state="normal"))
+
+    thread = threading.Thread(target=task)
     thread.start()
+
+def safe_ui_update(func):
+    app.after(0, func)
 
 
 # =============================
 # Ventana
 # =============================
 app = tk.Tk()
-app.title("RPA TOOL by Vuistaz v1.0")
+app.title("RPA TOOL by Vuistaz v1.1")
 app.geometry("420x260")
 app.resizable(False, False)
 
@@ -260,7 +342,9 @@ tk.Button(app, text="Seleccionar carpeta del juego", command=select_root).pack(p
 root_label = tk.Label(app, text="No seleccionada")
 root_label.pack()
 
-tk.Button(app, text="🚀 Desencriptar", command=start_extraction).pack(pady=10)
+#tk.Button(app, text="🚀 Desencriptar", command=start_extraction).pack(pady=10)
+start_btn = tk.Button(app, text="🚀 Desencriptar", command=start_extraction)
+start_btn.pack(pady=10)
 
 progress = ttk.Progressbar(app, length=300)
 progress.pack(pady=5)
