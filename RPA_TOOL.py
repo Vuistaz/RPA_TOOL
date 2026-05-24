@@ -36,6 +36,24 @@
 #- Prevención de conflictos entre threads y Tkinter
 #- Mayor compatibilidad al compilar con PyInstaller
 # especial agradecimiento a Shizmob por su codigo fuente de rpa tool con el cual cree esta herramienta si quieren pasarse por su github: https://github.com/shizmob/rpatool
+
+# Update 1.2
+#🌐 1. Sistema Internacional de Idiomas (i18n)
+##Traducción en Tiempo Real: Se añadió soporte completo bilingüe (Español ↔ Inglés).
+#Control Inteligente de Idioma: Se incorporó un menú desplegable moderno (ttk.Combobox) en la esquina superior derecha para alternar idiomas con un clic.
+#Persistencia de Estado: Al cambiar el idioma a mitad de un proceso de desencriptación, los estados internos dinámicos (como "Buscando archivos..." o "Decompilando...") se traducen al instante sin alterar el flujo del hilo secundario.
+#🎨 2. Rediseño Completo de la Interfaz Gráfica (UI Modernizada)
+#Tema Oscuro Integrado: Se eliminó el estilo gris clásico de Windows, sustituyéndolo por una paleta oscura y elegante con contrastes de colores pastel (#1E1E2E, #313244 y #A6E3A1).
+#Botones con Diseño Plano (Flat UI): Se removieron los bordes tridimensionales antiguos (bd=0) y se configuró margen interno (padx/pady) para crear botones más estilizados.
+#Efectos de Cursor Interactivos: Se programaron transiciones de color (activebackground y activeforeground) en los botones para que respondan visualmente cuando pasas el ratón o haces clic.
+#Barra de Progreso y Componentes Estilizados: Se configuró el motor de estilos ttk.Style(theme="clam") para integrar la barra de progreso de forma armónica al tema oscuro.
+#🔧 3. Correcciones de Código y Estabilidad (Bugfixes)
+#Error de Parámetro en Botones: Se corrigió el uso ilegal de padding= en los componentes tk.Button tradicionales (que causaba el "Fatal Error" de Python al buscar la propiedad nativa de ttk), reemplazándolo por padx y pady.
+#Sintaxis de Código Desestructurado: Se repararon múltiples líneas colapsadas por fallas de copiado (como last_status_extralast_status_key), reestructurando el código con la indentación exacta obligatoria de Python.
+#Restauración de Eventos de Interfaz: Se corrigió el trigger de detección del idioma enlazando el evento correcto (<<ComboboxSelected>>) que se encontraba borrado.
+#Unificación de Bucle Principal: Se removieron ejecuciones duplicadas de la ventana principal garantizando un único punto de entrada con app.mainloop() al cierre del script.
+# -*- coding: utf-8 -*-
+# especial agradecimiento a Shizmob por su codigo fuente de rpa tool con el cual cree esta herramienta si quieren pasarse por su github: https://github.com
 from __future__ import print_function
 
 import os
@@ -62,7 +80,7 @@ def _unpickle(data):
 
 
 # =============================
-# RenPyArchive (tu clase, recortada a lo necesario)
+# RenPyArchive (Lógica Arreglada)
 # =============================
 import codecs
 import errno
@@ -106,6 +124,9 @@ class RenPyArchive:
         self.handle.seek(0)
         metadata = self.handle.readline()
         vals = metadata.split()
+
+        if len(vals) < 2:
+            raise ValueError("Estructura de cabecera corrupta o inválida")
 
         offset = int(vals[1], 16)
 
@@ -156,23 +177,19 @@ def find_rpa_files(root_folder):
                 rpas.append(os.path.join(root, f))
     return rpas
 
+
 def extract_rpa_file(rpa_path, output_dir):
     archive = RenPyArchive(rpa_path)
-
     try:
         for filename in archive.list():
             try:
                 data = archive.read(filename)
                 out_path = os.path.join(output_dir, filename)
-
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)
-
                 with open(out_path, "wb") as f:
                     f.write(data)
-
             except Exception as e:
                 print("[RPA ERROR]", filename, e)
-
     finally:
         if archive.handle:
             archive.handle.close()
@@ -182,16 +199,12 @@ def extract_rpa_file(rpa_path, output_dir):
 # Decompilar RPYC (robusto)
 # =============================
 def decompile_rpyc(root_folder, status_callback=None):
-    """
-    Decompila todos los .rpyc usando unrpyc (sin abrir segunda GUI)
-    """
     try:
         import unrpyc
 
         if status_callback:
-            status_callback("🔎 Buscando archivos .rpyc...")
+            status_callback("msg_searching_rpyc")
 
-        # Verificar si existen .rpyc antes de intentar
         found = False
         for root, _, files in os.walk(root_folder):
             for f in files:
@@ -203,63 +216,56 @@ def decompile_rpyc(root_folder, status_callback=None):
 
         if not found:
             if status_callback:
-                status_callback("ℹ️ No se encontraron .rpyc")
+                status_callback("msg_no_rpyc")
             return
 
         if status_callback:
-            status_callback("⚙️ Decompilando scripts...")
+            status_callback("msg_decompiling")
 
         unrpyc.decompile_game(root_folder)
 
         if status_callback:
-            status_callback("✅ Scripts decompilados correctamente")
+            status_callback("msg_decompiled_ok")
 
     except Exception as e:
         print("[RPYC ERROR]", e)
         if status_callback:
-            status_callback("❌ Error al decompilar scripts")
+            status_callback("msg_err_rpyc")
 
 
 # =============================
 # PROCESO PRINCIPAL
 # =============================
 def process_game(root_folder, status_callback=None, progress_callback=None):
-
-    # 🔹 Wrappers para asegurar update de UI
-    def update_status(msg):
+    def update_status(msg_key, extra=""):
         if status_callback:
-            status_callback(msg)
+            status_callback(msg_key, extra)
 
     def update_progress(i, total):
         if progress_callback:
             progress_callback(i, total)
 
-    # 🔍 Buscar archivos
-    update_status("🔎 Buscando archivos RPA...")
-
+    update_status("msg_searching_rpa")
     rpa_files = find_rpa_files(root_folder)
 
     print("RPA encontrados:", rpa_files)
 
     if not rpa_files:
-        update_status("❌ No se encontraron archivos RPA")
+        update_status("msg_no_rpa")
         return
 
     output_dir = os.path.join(root_folder, "extracted")
     if os.path.exists(output_dir):
-        update_status("⚠️ Carpeta 'extracted' ya existe (se sobrescribirá)")
+        update_status("msg_overwrite_warn")
     os.makedirs(output_dir, exist_ok=True)
 
     total = len(rpa_files)
     current = 0
 
-    # =============================
-    # 🔹 PROCESAR RPA
-    # =============================
     for rpa in rpa_files:
         current += 1
-
-        update_status(f"Extrayendo ({current}/{total}): {os.path.basename(rpa)}")
+        base_name = os.path.basename(rpa)
+        update_status("msg_extracting", f"({current}/{total}): {base_name}")
 
         try:
             extract_rpa_file(rpa, output_dir)
@@ -267,18 +273,96 @@ def process_game(root_folder, status_callback=None, progress_callback=None):
             print("[RPA ERROR]", e)
 
         update_progress(current, total)
-    # =============================
-    # 🔹 DECOMPILAR SCRIPTS
-    # =============================
-    update_status("Decompilando scripts...")
-    decompile_rpyc(root_folder, update_status)
 
-    update_status("✅ Extracción y decompilación completadas")
+    update_status("msg_scripts")
+    decompile_rpyc(root_folder, status_callback)
+    update_status("msg_success")
+
 
 # =============================
-# GUI
+# Diccionario de Lenguajes (i18n)
+# =============================
+LANGUAGES = {
+    "es": {
+        "title": "RPA TOOL por Vuistaz v1.2",
+        "btn_select": "📁 Seleccionar carpeta del juego",
+        "lbl_selected": "Carpeta seleccionada ✅",
+        "lbl_not_selected": "No seleccionada",
+        "btn_start": "🚀 Desencriptar",
+        "msg_waiting": "Esperando...",
+        "msg_warn": "Aviso",
+        "msg_select_first": "Selecciona una carpeta primero",
+        "msg_fatal_err": "❌ Error inesperado",
+        "credits": "Código base adaptado de rpatool - por Shizmob",
+        "msg_searching_rpyc": "🔎 Buscando archivos .rpyc...",
+        "msg_no_rpyc": "ℹ️ No se encontraron archivos .rpyc",
+        "msg_decompiling": "⚙️ Decompilando scripts...",
+        "msg_decompiled_ok": "✅ Scripts decompilados correctamente",
+        "msg_err_rpyc": "❌ Error al decompilar scripts",
+        "msg_searching_rpa": "🔎 Buscando archivos RPA...",
+        "msg_no_rpa": "❌ No se encontraron archivos RPA",
+        "msg_overwrite_warn": "⚠️ Carpeta 'extracted' ya existe (se sobrescribirá)",
+        "msg_extracting": "Extrayendo ",
+        "msg_scripts": "Decompilando scripts...",
+        "msg_success": "✅ Extracción y decompilación completadas"
+    },
+    "en": {
+        "title": "RPA TOOL by Vuistaz v1.1",
+        "btn_select": "📁 Select Game Directory",
+        "lbl_selected": "Folder selected ✅",
+        "lbl_not_selected": "Not selected",
+        "btn_start": "🚀 Decrypt Archive",
+        "msg_waiting": "Waiting...",
+        "msg_warn": "Warning",
+        "msg_select_first": "Please select a directory first",
+        "msg_fatal_err": "❌ Unexpected error",
+        "credits": "Base code adapted from rpatool - by Shizmob",
+        "msg_searching_rpyc": "🔎 Searching for .rpyc files...",
+        "msg_no_rpyc": "ℹ️ No .rpyc files found",
+        "msg_decompiling": "⚙️ Decompiling scripts...",
+        "msg_decompiled_ok": "✅ Scripts decompiled successfully",
+        "msg_err_rpyc": "❌ Error decompiling scripts",
+        "msg_searching_rpa": "🔎 Searching for RPA archives...",
+        "msg_no_rpa": "❌ No RPA archives found",
+        "msg_overwrite_warn": "⚠️ 'extracted' directory exists (it will be overwritten)",
+        "msg_extracting": "Extracting ",
+        "msg_scripts": "Decompiling scripts...",
+        "msg_success": "✅ Extraction and decompiling finished"
+    }
+}
+
+# =============================
+# LÓGICA DE CONTROL E INTERFAZ
 # =============================
 ROOT_DIR = None
+current_lang = "es"
+last_status_key = "msg_waiting"
+last_status_extra = ""
+
+
+def change_language(event):
+    global current_lang
+    selected = lang_combo.get()
+    current_lang = "es" if "Español" in selected else "en"
+    update_ui_texts()
+
+
+def update_ui_texts():
+    lang = LANGUAGES[current_lang]
+    app.title(lang["title"])
+    title_lbl.config(text="RPA TOOL")
+    select_btn.config(text=lang["btn_select"])
+    
+    if ROOT_DIR:
+        root_label.config(text=lang["lbl_selected"])
+    else:
+        root_label.config(text=lang["lbl_not_selected"])
+        
+    start_btn.config(text=lang["btn_start"])
+    credits_lbl.config(text=lang["credits"])
+    
+    translated_status = lang.get(last_status_key, last_status_key)
+    status.config(text=f"{translated_status}{last_status_extra}")
 
 
 def select_root():
@@ -288,31 +372,65 @@ def select_root():
         return
 
     ROOT_DIR = path
-    root_label.config(text="Carpeta seleccionada ✅")
+    root_label.config(text=LANGUAGES[current_lang]["lbl_selected"])
 
 
 def run_extraction():
     try:
+        def status_update_handler(msg_key, extra=""):
+            global last_status_key, last_status_extra
+            last_status_key = msg_key
+            last_status_extra = extra
+            translated = LANGUAGES[current_lang].get(msg_key, msg_key)
+            safe_ui_update(lambda: status.config(text=f"{translated}{extra}"))
+
         process_game(
             ROOT_DIR,
-            status_callback=lambda t: safe_ui_update(lambda: status.config(text=t)),
+            status_callback=status_update_handler,
             progress_callback=lambda i, t: safe_ui_update(
                 lambda: (progress.config(maximum=t, value=i))
             ),
         )
     except Exception as e:
         print("[FATAL ERROR]", e)
-        safe_ui_update(lambda: status.config(text="❌ Error inesperado"))
+        global last_status_key, last_status_extra
+        last_status_key = "msg_fatal_err"
+        last_status_extra = ""
+        safe_ui_update(lambda: status.config(text=LANGUAGES[current_lang]["msg_fatal_err"]))
+
+
+def run_extraction():
+    try:
+        def status_update_handler(msg_key, extra=""):
+            global last_status_key, last_status_extra
+            last_status_key = msg_key
+            last_status_extra = extra
+            translated = LANGUAGES[current_lang].get(msg_key, msg_key)
+            safe_ui_update(lambda: status.config(text=f"{translated}{extra}"))
+
+        process_game(
+            ROOT_DIR,
+            status_callback=status_update_handler,
+            progress_callback=lambda i, t: safe_ui_update(
+                lambda: (progress.config(maximum=t, value=i))
+            ),
+        )
+    except Exception as e:
+        print("[FATAL ERROR]", e)
+        global last_status_key, last_status_extra
+        last_status_key = "msg_fatal_err"
+        last_status_extra = ""
+        safe_ui_update(lambda: status.config(text=LANGUAGES[current_lang]["msg_fatal_err"]))
 
 
 def start_extraction():
+    lang = LANGUAGES[current_lang]
     if not ROOT_DIR:
-        messagebox.showwarning("Aviso", "Selecciona una carpeta primero")
+        messagebox.showwarning(lang["msg_warn"], lang["msg_select_first"])
         return
 
     progress["value"] = 0
     progress["maximum"] = 1
-
     start_btn.config(state="disabled")
 
     def task():
@@ -322,41 +440,86 @@ def start_extraction():
     thread = threading.Thread(target=task)
     thread.start()
 
+
 def safe_ui_update(func):
     app.after(0, func)
 
 
 # =============================
-# Ventana
+# Ventana Principal (Estilo Moderno)
 # =============================
 app = tk.Tk()
-app.title("RPA TOOL by Vuistaz v1.1")
-app.geometry("420x260")
+app.geometry("460x320")
 app.resizable(False, False)
+app.configure(bg="#1e1e2e")
 
-title = tk.Label(app, text="RPA TOOL", font=("Segoe UI", 14, "bold"))
-title.pack(pady=10)
+style = ttk.Style()
+style.theme_use("clam")
+style.configure("TProgressbar", thickness=15, troughcolor="#313244", background="#a6e3a1")
+style.configure("TCombobox", fieldbackground="#313244", background="#313244", foreground="#cdd6f4", arrowcolor="#cdd6f4")
 
-tk.Button(app, text="Seleccionar carpeta del juego", command=select_root).pack(pady=5)
+# Top Frame para idioma
+top_frame = tk.Frame(app, bg="#1e1e2e")
+top_frame.pack(fill="x", padx=15, pady=(10, 0))
 
-root_label = tk.Label(app, text="No seleccionada")
-root_label.pack()
+lang_combo = ttk.Combobox(top_frame, values=["🌐 Español (ES)", "🌐 English (EN)"], state="readonly", width=15)
+lang_combo.current(0)
+lang_combo.pack(side="right")
+lang_combo.bind("<<ComboboxSelected>>", change_language)
 
-#tk.Button(app, text="🚀 Desencriptar", command=start_extraction).pack(pady=10)
-start_btn = tk.Button(app, text="🚀 Desencriptar", command=start_extraction)
+# Componentes Visuales
+title_lbl = tk.Label(app, text="RPA TOOL", font=("Segoe UI", 18, "bold"), bg="#1e1e2e", fg="#cdd6f4")
+title_lbl.pack(pady=(5, 10))
+
+select_btn = tk.Button(
+    app,
+    text="",
+    command=select_root,
+    font=("Segoe UI", 10, "bold"),
+    bg="#313244",
+    fg="#cdd6f4",
+    activebackground="#45475a",
+    activeforeground="#ffffff",
+    bd=0,
+    padx=8,
+    pady=4
+)
+select_btn.pack(pady=5)
+
+root_label = tk.Label(app, text="", font=("Segoe UI", 9, "italic"), bg="#1e1e2e", fg="#bac2de")
+root_label.pack(pady=(0, 15))
+
+start_btn = tk.Button(
+    app,
+    text="",
+    command=start_extraction,
+    font=("Segoe UI", 11, "bold"),
+    bg="#11111b",
+    fg="#a6e3a1",
+    activebackground="#a6e3a1",
+    activeforeground="#11111b",
+    bd=1,
+    relief="solid",
+    highlightcolor="#a6e3a1",
+    padx=8,
+    pady=4
+)
 start_btn.pack(pady=10)
 
-progress = ttk.Progressbar(app, length=300)
+progress = ttk.Progressbar(app, length=340, style="TProgressbar")
 progress.pack(pady=5)
 
-status = tk.Label(app, text="Esperando...")
-status.pack()
-# ----------------- Agradecimientos -----------------
-credits = tk.Label(
-    app, 
-    text="Código base adaptado de rpatool - por Shizmob", 
-    font=("Segoe UI", 8), 
-    fg="gray"
-)
-credits.pack(pady=5)
+status = tk.Label(app, text="", font=("Segoe UI", 10), bg="#1e1e2e", fg="#f5e0dc")
+status.pack(pady=5)
+
+credits_lbl = tk.Label(app, text="", font=("Segoe UI", 8), bg="#1e1e2e", fg="#585b70")
+credits_lbl.pack(side="bottom", pady=10)
+
+# Cargar textos iniciales y arrancar el loop principal (una sola vez)
+update_ui_texts()
 app.mainloop()
+
+
+
+
+
